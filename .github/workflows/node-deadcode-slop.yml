@@ -1,18 +1,9 @@
-name: Node quality (reusable)
+name: Node dead-code & slop (reusable)
 
-# Runs the canonical script contract — lint, format:check, typecheck,
-# test:coverage, build, deadcode, slop:ci — against a single npm package.
-# Built for the shape most of these repos actually have: one package.json,
-# not necessarily at the repo root. It does NOT fit an npm-workspaces
-# monorepo with per-workspace jobs (see desktop-financial-planner's own
-# web-ci.yml) — that stays hand-written; trying to generalize both shapes
-# into one reusable workflow would make neither one clear.
-#
-# Every script here is expected to exist per the canonical contract:
-#   lint, format:check, typecheck, test:coverage, build, deadcode, slop:ci
-# `run_build`, `run_deadcode`, and `run_slop` exist because not every
-# consumer has all three yet (a library package may have no `build`) —
-# default true, flip to false rather than editing this file.
+# knip (dead code / unused deps) and aislop (AI-slop score gate) against a
+# single npm package. A single run — no matrix — since neither gate's result
+# changes with the Node version; see node-build-test.yml for the part that
+# does.
 
 on:
   workflow_call:
@@ -30,11 +21,6 @@ on:
         required: false
         type: string
         default: "20"
-      run-build:
-        description: "Run `npm run build`. Set false for a package with no build step (e.g. a library)."
-        required: false
-        type: boolean
-        default: true
       run-deadcode:
         description: "Run `npm run deadcode` (knip)."
         required: false
@@ -55,49 +41,8 @@ on:
         type: boolean
         default: false
 
-defaults:
-  run:
-    shell: bash
-
 jobs:
-  build-and-test:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: ${{ inputs.working-directory }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node-version }}
-          cache: npm
-          cache-dependency-path: ${{ inputs.cache-dependency-path }}
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Lint
-        run: npm run lint
-
-      - name: Typecheck
-        run: npm run typecheck
-
-      - name: Check formatting
-        run: npm run format:check
-
-      - name: Test (with coverage thresholds)
-        run: npm run test:coverage
-
-      - name: Build
-        if: ${{ inputs.run-build }}
-        run: npm run build
-
   quality:
-    if: ${{ inputs.run-deadcode || inputs.run-slop }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -108,6 +53,7 @@ jobs:
     defaults:
       run:
         working-directory: ${{ inputs.working-directory }}
+        shell: bash
     steps:
       - uses: actions/checkout@v4
         with:

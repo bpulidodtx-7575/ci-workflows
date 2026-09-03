@@ -1,0 +1,72 @@
+name: Node build & test (reusable)
+
+# lint, format:check, typecheck, test:coverage, build against a single npm
+# package. Deliberately split from dead-code/slop scanning (see
+# node-deadcode-slop.yml): the caller can put this job under a `strategy:
+# matrix:` (e.g. across Node versions) without duplicating the slower,
+# single-run quality gates per matrix leg.
+#
+# Built for the shape most of these repos actually have: one package.json,
+# not necessarily at the repo root. It does NOT fit an npm-workspaces
+# monorepo with per-workspace jobs (see desktop-financial-planner's own
+# web-ci.yml) — that stays hand-written.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Path to the package, relative to the repo root (e.g. 'files', 'cards-in-box-app', or '.' for the repo root)."
+        required: true
+        type: string
+      cache-dependency-path:
+        description: "Path to package-lock.json, relative to the repo root, for actions/setup-node's npm cache key."
+        required: true
+        type: string
+      node-version:
+        description: "Node version for setup-node."
+        required: false
+        type: string
+        default: "20"
+      run-build:
+        description: "Run `npm run build`. Set false for a package with no build step (e.g. a library)."
+        required: false
+        type: boolean
+        default: true
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test (with coverage thresholds)
+        run: npm run test:coverage
+
+      - name: Build
+        if: ${{ inputs.run-build }}
+        run: npm run build

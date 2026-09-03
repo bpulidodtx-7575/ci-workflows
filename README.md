@@ -18,22 +18,36 @@ stays broken in the other three. This repo is that logic, written once.
 
 ## Workflows
 
-### `node-quality.yml`
+### `node-build-test.yml` + `node-deadcode-slop.yml`
 
-Lint, format:check, typecheck, test:coverage, build, deadcode, slop:ci — the
-canonical script contract — against **one npm package**. Built for a
-single-`package.json` repo (optionally not at the repo root); it does not fit
-an npm-workspaces monorepo with per-workspace jobs.
+Together they cover the canonical script contract — lint, format:check,
+typecheck, test:coverage, build, deadcode, slop:ci — against **one npm
+package**. Built for a single-`package.json` repo (optionally not at the
+repo root); neither fits an npm-workspaces monorepo with per-workspace jobs.
+
+Split in two, not one, because the first started life bundled and broke the
+moment a real consumer needed a Node-version matrix: matrixing a combined job
+would re-run the (slower, version-independent) dead-code and slop scans once
+per matrix leg for no reason.
 
 ```yaml
 jobs:
-  quality:
-    uses: bpulidodtx-7575/ci-workflows/.github/workflows/node-quality.yml@v1
+  build-and-test:
+    strategy:
+      matrix:
+        node-version: ["20.x", "22.x"]
+    uses: bpulidodtx-7575/ci-workflows/.github/workflows/node-build-test.yml@v1
     with:
       working-directory: files # or "." for the repo root
       cache-dependency-path: files/package-lock.json
-      # node-version: "20"          (default)
+      node-version: ${{ matrix.node-version }}
       # run-build: true             (false if the package has no build step)
+
+  quality:
+    uses: bpulidodtx-7575/ci-workflows/.github/workflows/node-deadcode-slop.yml@v1
+    with:
+      working-directory: files
+      cache-dependency-path: files/package-lock.json
       # run-deadcode: true
       # run-slop: true
       # upload-sarif: false         (true only on a public repo, or a
