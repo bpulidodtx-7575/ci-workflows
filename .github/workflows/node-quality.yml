@@ -1,0 +1,144 @@
+name: Node quality (reusable)
+
+# Runs the canonical script contract — lint, format:check, typecheck,
+# test:coverage, build, deadcode, slop:ci — against a single npm package.
+# Built for the shape most of these repos actually have: one package.json,
+# not necessarily at the repo root. It does NOT fit an npm-workspaces
+# monorepo with per-workspace jobs (see desktop-financial-planner's own
+# web-ci.yml) — that stays hand-written; trying to generalize both shapes
+# into one reusable workflow would make neither one clear.
+#
+# Every script here is expected to exist per the canonical contract:
+#   lint, format:check, typecheck, test:coverage, build, deadcode, slop:ci
+# `run_build`, `run_deadcode`, and `run_slop` exist because not every
+# consumer has all three yet (a library package may have no `build`) —
+# default true, flip to false rather than editing this file.
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Path to the package, relative to the repo root (e.g. 'files', 'cards-in-box-app', or '.' for the repo root)."
+        required: true
+        type: string
+      cache-dependency-path:
+        description: "Path to package-lock.json, relative to the repo root, for actions/setup-node's npm cache key."
+        required: true
+        type: string
+      node-version:
+        description: "Node version for setup-node."
+        required: false
+        type: string
+        default: "20"
+      run-build:
+        description: "Run `npm run build`. Set false for a package with no build step (e.g. a library)."
+        required: false
+        type: boolean
+        default: true
+      run-deadcode:
+        description: "Run `npm run deadcode` (knip)."
+        required: false
+        type: boolean
+        default: true
+      run-slop:
+        description: "Run `npm run slop:ci` (aislop)."
+        required: false
+        type: boolean
+        default: true
+      upload-sarif:
+        description: >-
+          Upload the aislop SARIF to the repo's Security tab. Only works on
+          public repos, or private repos with GitHub Advanced Security
+          enabled — leave false otherwise (the upload step fails loudly if
+          the repo can't accept it, so this is opt-in, not auto-detected).
+        required: false
+        type: boolean
+        default: false
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Check formatting
+        run: npm run format:check
+
+      - name: Test (with coverage thresholds)
+        run: npm run test:coverage
+
+      - name: Build
+        if: ${{ inputs.run-build }}
+        run: npm run build
+
+  quality:
+    if: ${{ inputs.run-deadcode || inputs.run-slop }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      # Only used when upload-sarif is true, to publish aislop findings to
+      # the Security tab. Nothing here writes to the repository.
+      security-events: write
+    defaults:
+      run:
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node-version }}
+          cache: npm
+          cache-dependency-path: ${{ inputs.cache-dependency-path }}
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Dead code and unused dependencies
+        if: ${{ inputs.run-deadcode }}
+        run: npm run deadcode
+
+      # Written before the gate runs so the findings still reach the Security
+      # tab on a failing score, which is exactly when they are worth reading.
+      - name: Generate aislop SARIF
+        if: ${{ inputs.run-slop && inputs.upload-sarif }}
+        run: npx aislop ci --sarif > aislop.sarif || true
+
+      - name: Upload aislop SARIF
+        if: ${{ inputs.run-slop && inputs.upload-sarif }}
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: ${{ inputs.working-directory }}/aislop.sarif
+          category: aislop
+
+      - name: AI-slop score gate
+        if: ${{ inputs.run-slop }}
+        run: npm run slop:ci

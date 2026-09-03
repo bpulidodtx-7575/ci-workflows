@@ -1,0 +1,12 @@
+# zizmor — static analysis for GitHub Actions. https://docs.zizmor.sh
+# Canonical policy for this account: hash-pin third-party actions, allow
+# major-version tags for GitHub's own. This is the same policy embedded as
+# the default in security.yml's "Write default zizmor config" step — kept
+# here too so this repo's own workflows are held to it.
+rules:
+  unpinned-uses:
+    config:
+      policies:
+        "*": hash-pin
+        "actions/*": ref-pin
+        "github/*": ref-pin

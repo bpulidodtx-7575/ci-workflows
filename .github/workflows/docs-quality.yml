@@ -1,0 +1,74 @@
+name: Docs quality (reusable)
+
+# Content-quality gate for a docs-only repo (or the docs tree of a code repo):
+# markdownlint for consistency, lychee for link rot, and a single aggregate
+# check so branch protection has one thing to require. Generalized from
+# the-fortified-mindset's ci.yml — same jobs, same pins, parametrized globs.
+
+on:
+  workflow_call:
+    inputs:
+      markdown-globs:
+        description: "Glob(s) markdownlint-cli2 should lint."
+        required: false
+        type: string
+        default: "**/*.md"
+
+jobs:
+  markdownlint:
+    name: Lint Markdown
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: markdownlint-cli2
+        # Pinned to a SHA: a floating tag on a third-party action is a
+        # mutable dependency that executes on every PR. Dependabot bumps it.
+        uses: DavidAnson/markdownlint-cli2-action@4580e1612f6407034edd6c0e4e316d725920867b # v24.2.0
+        with:
+          globs: ${{ inputs.markdown-globs }}
+
+  link-check:
+    name: Check links
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Lychee
+        # Pinned to a SHA: a floating tag on a third-party action is a
+        # mutable dependency that executes on every PR. Dependabot bumps it.
+        # Default args already cover './**/*.md' and './**/*.html'; excludes
+        # and retry/accept tuning belong in the consuming repo's lychee.toml
+        # (auto-loaded from its root, no --config flag needed).
+        uses: lycheeverse/lychee-action@e7477775783ea5526144ba13e8db5eec57747ce8 # v2.9.0
+        with:
+          fail: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  summary:
+    name: Docs CI summary
+    if: ${{ always() }}
+    needs: [markdownlint, link-check]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Fail if any required job did not succeed
+        run: |
+          results="${{ join(needs.*.result, ' ') }}"
+          echo "Upstream job results: $results"
+          for r in $results; do
+            if [ "$r" != "success" ]; then
+              echo "::error::A required job did not succeed ($results)"
+              exit 1
+            fi
+          done
+          echo "All required jobs succeeded."

@@ -1,0 +1,106 @@
+name: Security (reusable)
+
+# Two independent legs: gitleaks catches a committed credential, actionlint +
+# zizmor catch a broken or over-scoped workflow. Generalized from pt-tool's
+# proven security.yml — same jobs, same pins.
+
+on:
+  workflow_call:
+    inputs:
+      zizmor-config-path:
+        description: >-
+          Path (relative to the repo root) to a repo-local zizmor config to
+          use instead of the embedded default policy. Leave empty to use the
+          embedded policy: hash-pin third-party actions, ref-pin GitHub's own
+          (actions/*, github/*) and container images.
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  # Static analysis of the calling repo's own workflow files.
+  workflows:
+    name: Workflow lint (actionlint + zizmor)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      - name: Install actionlint
+        env:
+          ACTIONLINT_VERSION: 1.7.7
+          ACTIONLINT_SHA256: 023070a287cd8cccd71515fedc843f1985bf96c436b7effaecce67290e7e0757
+        run: |
+          set -euo pipefail
+          curl -sSLo actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          echo "${ACTIONLINT_SHA256}  actionlint.tar.gz" | sha256sum -c -
+          tar xzf actionlint.tar.gz actionlint
+
+      - name: Run actionlint
+        run: ./actionlint -color .github/workflows/*.yml
+
+      - name: Install zizmor
+        run: pipx install zizmor==1.30.0
+
+      - name: Write default zizmor config
+        if: ${{ inputs.zizmor-config-path == '' }}
+        run: |
+          mkdir -p /tmp/zizmor
+          cat > /tmp/zizmor/config.yml <<'EOF'
+          rules:
+            unpinned-uses:
+              config:
+                policies:
+                  "*": hash-pin
+                  "actions/*": ref-pin
+                  "github/*": ref-pin
+          EOF
+          echo "ZIZMOR_CONFIG_PATH=/tmp/zizmor/config.yml" >> "$GITHUB_ENV"
+
+      - name: Use repo-local zizmor config
+        if: ${{ inputs.zizmor-config-path != '' }}
+        env:
+          ZIZMOR_CONFIG_PATH_INPUT: ${{ inputs.zizmor-config-path }}
+        run: echo "ZIZMOR_CONFIG_PATH=$ZIZMOR_CONFIG_PATH_INPUT" >> "$GITHUB_ENV"
+
+      # --offline keeps this job to the audits that were validated locally.
+      # The online audits (ref-confusion, impostor-commit) need API access and
+      # can surface findings this pin has never been checked against; turning
+      # them on is a deliberate follow-up, not a silent default.
+      - name: Run zizmor
+        run: zizmor --offline --no-progress --config "$ZIZMOR_CONFIG_PATH" .github/workflows/
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # gitleaks-action calls the GitHub API to list the PR's commits (so it can
+    # scan exactly what the PR adds, not the whole history unnecessarily) --
+    # the workflow-level contents:read alone gets a 403 "Resource not
+    # accessible by integration" on that call and the job never gets to
+    # scanning at all.
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+          # Full history: a secret that was committed and later removed is
+          # still a leaked secret.
+          fetch-depth: 0
+
+      - name: Run gitleaks
+        # Free for repositories owned by a personal account. If a consuming
+        # repo ever moves under an organization, this action requires a
+        # GITLEAKS_LICENSE.
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.9
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
