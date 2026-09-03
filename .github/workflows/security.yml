@@ -60,6 +60,9 @@ jobs:
                   "*": hash-pin
                   "actions/*": ref-pin
                   "github/*": ref-pin
+                  # This account's own reusable workflows — see the note in
+                  # this repo's own .github/zizmor.yml.
+                  "bpulidodtx-7575/*": ref-pin
           EOF
           echo "ZIZMOR_CONFIG_PATH=/tmp/zizmor/config.yml" >> "$GITHUB_ENV"
 

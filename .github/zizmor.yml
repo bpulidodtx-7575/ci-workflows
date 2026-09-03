@@ -10,3 +10,7 @@ rules:
         "*": hash-pin
         "actions/*": ref-pin
         "github/*": ref-pin
+        # This account's own reusable workflows. Hash-pinning here would mean
+        # every future ci-workflows fix needs a SHA update in every consumer
+        # — the exact duplication this repo exists to remove.
+        "bpulidodtx-7575/*": ref-pin
