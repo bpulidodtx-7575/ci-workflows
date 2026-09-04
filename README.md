@@ -44,6 +44,10 @@ jobs:
       # run-build: true             (false if the package has no build step)
 
   quality:
+    # REQUIRED, even with upload-sarif: false. See the note below.
+    permissions:
+      contents: read
+      security-events: write
     uses: bpulidodtx-7575/ci-workflows/.github/workflows/node-deadcode-slop.yml@v1
     with:
       working-directory: files
@@ -54,6 +58,21 @@ jobs:
       #                              private one with GitHub Advanced
       #                              Security enabled)
 ```
+
+> **`node-deadcode-slop.yml` callers must grant `security-events: write` on the
+> calling job — always, including when `upload-sarif` is false.** Its job
+> *declares* that permission for the optional SARIF upload, and GitHub refuses
+> to start the whole run (`startup_failure`, before any job, with no log to
+> read) if a nested job requests a permission the calling job does not allow.
+> It does not silently cap it. The grant is inert when `upload-sarif` is
+> false: both SARIF steps are skipped and no token carrying the scope is used.
+>
+> This is a wart in `v1` — a workflow cannot declare a permission
+> conditionally — and it cannot be fixed without a `v2`, since removing the
+> declaration would break `pt-tool`'s working SARIF upload. Callers of
+> `node-build-test.yml` need no `permissions:` block at all; callers of
+> `security.yml` need `{contents: read, pull-requests: read}` (gitleaks-action
+> lists the PR's commits, and 403s without it).
 
 Requires the consuming package.json to define: `lint`, `format:check`,
 `typecheck`, `test:coverage`, `build` (unless `run-build: false`), `deadcode`,
