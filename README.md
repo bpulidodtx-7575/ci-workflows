@@ -107,5 +107,23 @@ without their workflow file changing at all.
 
 - [`pt-tool`](https://github.com/bpulidodtx-7575/pt-tool) — the first
   consumer, validating the extraction against the workflow it was extracted
-  from.
-- More repos land here as they migrate off their hand-written CI.
+  from. Calls `node-build-test.yml` (under a Node 20/22 matrix),
+  `node-deadcode-slop.yml` (the only consumer with `upload-sarif: true`, since
+  it is the only public repo) and `security.yml`.
+- [`the-fortified-mindset`](https://github.com/bpulidodtx-7575/the-fortified-mindset)
+  — docs-only. Calls `docs-quality.yml` and `security.yml`; both of its
+  workflows are now nothing but triggers plus a delegating job.
+- [`cards-in-box-app`](https://github.com/bpulidodtx-7575/cards-in-box-app) —
+  calls `node-build-test.yml`, `node-deadcode-slop.yml` and `security.yml`.
+  Keeps its browser (Playwright e2e + a11y), bundle-budget and Semgrep jobs
+  hand-written; none has an equivalent here.
+- [`desktop-financial-planner`](https://github.com/bpulidodtx-7575/desktop-financial-planner)
+  — **partial by design.** Calls `node-deadcode-slop.yml` (at the repo root)
+  and `security.yml`. Its `core`/`web` jobs stay hand-written: it is an
+  npm-workspaces monorepo whose lint runs flat across all workspaces and whose
+  test/typecheck steps are `--workspace`-scoped, which `node-build-test.yml`'s
+  single-package shape would undo. Its Deno, Postgres-service and
+  `supabase start` jobs have no equivalent here either.
+
+`repo-template` ships `ci.yml`/`security.yml` already pointed at `@v1`, so a
+repo created from it consumes these on commit #1.
